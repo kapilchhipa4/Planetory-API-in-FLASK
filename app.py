@@ -3,13 +3,15 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Column, Integer, String, Float
 import os
 from flask_marshmallow import Marshmallow
+from flask_jwt_extended import JWTManager , jwt_required, create_access_token
 app = Flask(__name__)
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'planets.db')
-
+app.config['JWT_SECRET_KEY'] = 'super-secret' # change this uri
 db = SQLAlchemy(app)   
-ma = Marshmallow(app)   
+ma = Marshmallow(app) 
+jwt = JWTManager(app)   
 @app.cli.command('db_create')
 def db_create():
     db.create_all()
@@ -105,8 +107,45 @@ def planet_details(planet_id:int):
         return jsonify(message='that planet does not exist'),404
 
 
+@app.route('/register',methods=['POST'])
+def register():
+    email = request.form['email']
+    test = User.query.filter_by(email=email).first()
+    if test:
+        return jsonify(message='email already exist'), 409
+    else:
+        first_name = request.form['first_name']
+        last_name = request.form['last_name']
+        password = request.form['password']
+        user  = User(first_name=first_name,
+        last_name= last_name,
+        email=email,
+        password=password)
+        db.session.add(user)
+        db.session.commit()
+        return jsonify(message='user created successfully'),201
+
+@app.route('/login',methods=['POST'])
+def login():
+    if request.is_json:
+        email = request.json['email']
+        password = request.json['password']
+    else:
+        email = request.form['email']
+        password = request.form['password']
+    
+    test = User.query.filter_by(email=email,password=password).first()
+    if not test:
+        return jsonify(message='bad email or password') , 401
+    else:
+        access_token = create_access_token(identity=email)
+        return jsonify(message = 'login succeeded',access_token=access_token)
+
+
+
 
 @app.route('/add_planet',methods=['POST'])
+@jwt_required # only work if user logged in
 def add_planet():
     planet_name = request.form['planet_name']
     test = Planet.query.filter_by(planet_name=planet_name).first()
@@ -121,7 +160,7 @@ def add_planet():
         distance  = float(request.form['distance'])
         new_planet = Planet(planet_name=planet_name,
         planet_type=planet_type,
-        home_star = home_star,
+        home_star =  home_star,
         mass = mass,
         radius = radius,
         distance = distance)
@@ -133,6 +172,7 @@ def add_planet():
 
 
 @app.route('/update_planet',methods=['PUT'])  #PUT FOR UPDATE
+@jwt_required # only work if user logged in
 def update_planet():
     planet_id = int(request.form['planet_id'])
     planet = Planet.query.filter_by(planet_id = planet_id).first()
@@ -149,6 +189,7 @@ def update_planet():
         return jsonify(message='planet does not exist'), 404
 
 @app.route('/remove_planet/<int:planet_id>',methods=['DELETE'])   #DELETE for delete
+@jwt_required # only work if user logged in
 def remove_planet(planet_id:int):
     planet = Planet.query.filter_by(planet_id = planet_id).first() # remember the first() method
     if planet:
